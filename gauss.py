@@ -6,20 +6,24 @@ import matplotlib.widgets
 import warp as wp
 from adam import Adam
 res = 100
-alpha = 1e-6
-epochs = 1000
+alpha = 1e-2
+inverse = False
+epochs = 3000
 sigma0 = np.array([[5e-3, 0], [0, 1e-3]])
 sigma1 = sigma0
+bump = 2e-2
 x0 = np.array([0.4, 0.5])
 x1 = np.array([0.6, 0.5])
 x2 = np.array([0.8, 0.5])
 x3 = np.array([0.2, 0.5])
-m = 4
+m = 16
 
 @wp.func
 def gaussian_wp(sigma: wp.mat22, x: wp.vec2, x0: wp.vec2) -> float:
     dx = x - x0
-    return wp.exp(- wp.dot(dx, wp.inverse(sigma) @ dx))
+    sig = wp.select(inverse, sigma, wp.inverse(sigma))
+    return wp.exp(- wp.dot(dx, sig @ dx))
+    # return wp.exp(- wp.dot(dx, sigma @ dx))
 
 @wp.func 
 def phi0_wp(x: wp.vec2) -> float:
@@ -64,7 +68,7 @@ class Ellipsoid2D:
         self.q = q
         wp.launch(init, (m), inputs = [self.G, self.x])
         self.alpha = alpha
-        self.optimizer = Adam([self.k, self.G, self.x], lr = 0.01)
+        self.optimizer = Adam([self.k, self.G, self.x], lr = alpha)
 
     def phi_q(self, q):
         wp.launch(phi_q_, (res, res), inputs = [self.G, self.x, q, self.z, self.k])
@@ -133,7 +137,7 @@ def phi_q_(G: wp.array(dtype = wp.mat22), x: wp.array(dtype = wp.vec2), q: float
 @wp.kernel
 def init(G: wp.array(dtype = wp.mat22), x: wp.array(dtype =wp.vec2)):
     i = wp.tid()
-    G[i] = wp.diag(wp.vec2(5e-3, 1e-3))
+    G[i] = wp.select(not inverse, wp.diag(wp.vec2(5e-3, 1e-3)), wp.diag(wp.vec2(200.0, 1000.0)))
     x[i] = wp.vec2((float(i) + 0.5) / float(m), 0.5)
 
 def phi_q(q):
@@ -152,7 +156,7 @@ def express_ability_test():
     plt.subplot()
     z0 = phi_q(0.0)
     plt.contourf(x, y, z0, levels = np.arange(-0.5, 0.5, 0.1), cmap = 'coolwarm')
-    siny = np.sin(m * np.pi * y) * 0.1 + 0.5
+    siny = np.sin(m * np.pi * y) * bump + 0.5
     e2d = Ellipsoid2D(q = wp.from_numpy(siny, dtype = float, shape = (res)))
 
     def update(val):
